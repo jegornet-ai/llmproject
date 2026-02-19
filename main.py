@@ -14,20 +14,36 @@ MODEL_PARAMS = {
 
 MODES = {
     "normal": {
-        "label": "Обычный",
+        "label": "Прямой",
         "max_tokens": 8192,
         "prefix": "",
         "stop_sequences": [],
         "truncate_at": None,
-        "system": "Ты полезный ассистент.",
+        "system": "Ты эксперт по решению алгоритмических задач. На задачу выдавай прямой ответ.",
     },
-    "duck": {
-        "label": "Утиный",
-        "max_tokens": 512,
-        "prefix": "Кря! Отвечаю:",
-        "stop_sequences": ["."],
+    "step": {
+        "label": "Пошаговый",
+        "max_tokens": 8192,
+        "prefix": "",
+        "stop_sequences": [],
         "truncate_at": None,
-        "system": "Ты утка. Всегда отвечай одним длинным подробным предложением заканчивающимся точкой. Начало ответа уже написано, продолжи его.",
+        "system": "Ты эксперт по решению алгоритмических задач. Задачи решай пошагово.",
+    },
+    "prompt": {
+        "label": "Промпт",
+        "max_tokens": 8192,
+        "prefix": "",
+        "stop_sequences": [],
+        "truncate_at": None,
+        "system": "Ты эксперт по решению алгоритмических задач. Сначала составь промпт для решения задачи, а затем используй его.",
+    },
+    "group": {
+        "label": "Группа",
+        "max_tokens": 8192,
+        "prefix": "",
+        "stop_sequences": [],
+        "truncate_at": None,
+        "system": "Ты руководитель группы экспертов по решению алгоритмических задач. Для решения задачи создай группу экспертов: аналитик (анализирует задачу), инженер (предлагает решение), критик (оценивает решение и находит ошибки). Получи решение от каждого из них и представь итоговый результат.",
     },
 }
 
@@ -98,7 +114,9 @@ class ChatApp(App):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "mode-btn":
-            self.mode = "duck" if self.mode == "normal" else "normal"
+            modes_list = list(MODES.keys())
+            current_idx = modes_list.index(self.mode)
+            self.mode = modes_list[(current_idx + 1) % len(modes_list)]
             event.button.label = MODES[self.mode]["label"]
             self.query_one(Input).focus()
 
