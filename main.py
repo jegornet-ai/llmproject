@@ -13,37 +13,32 @@ MODEL_PARAMS = {
 }
 
 MODES = {
-    "normal": {
-        "label": "Прямой",
+    "t0": {
+        "label": "t = 0",
         "max_tokens": 8192,
+        "temperature": 0.0,
         "prefix": "",
         "stop_sequences": [],
         "truncate_at": None,
-        "system": "Ты эксперт по решению алгоритмических задач. На задачу выдавай прямой ответ.",
+        "system": "Ты полезный ассистент.",
     },
-    "step": {
-        "label": "Пошаговый",
+    "t07": {
+        "label": "t = 0.7",
         "max_tokens": 8192,
+        "temperature": 0.7,
         "prefix": "",
         "stop_sequences": [],
         "truncate_at": None,
-        "system": "Ты эксперт по решению алгоритмических задач. Задачи решай пошагово.",
+        "system": "Ты полезный ассистент.",
     },
-    "prompt": {
-        "label": "Промпт",
+    "t12": {
+        "label": "t = 1",
         "max_tokens": 8192,
+        "temperature": 1,
         "prefix": "",
         "stop_sequences": [],
         "truncate_at": None,
-        "system": "Ты эксперт по решению алгоритмических задач. Сначала составь промпт для решения задачи, а затем используй его.",
-    },
-    "group": {
-        "label": "Группа",
-        "max_tokens": 8192,
-        "prefix": "",
-        "stop_sequences": [],
-        "truncate_at": None,
-        "system": "Ты руководитель группы экспертов по решению алгоритмических задач. Для решения задачи создай группу экспертов: аналитик (анализирует задачу), инженер (предлагает решение), критик (оценивает решение и находит ошибки). Получи решение от каждого из них и представь итоговый результат.",
+        "system": "Ты полезный ассистент.",
     },
 }
 
@@ -89,7 +84,7 @@ class ChatApp(App):
     def __init__(self):
         super().__init__()
         self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        self.mode = "normal"
+        self.mode = next(iter(MODES))
         self.history: list[anthropic.types.MessageParam] = []
 
     def compose(self) -> ComposeResult:
@@ -98,7 +93,7 @@ class ChatApp(App):
             yield ChatLog(id="log", read_only=True)
             with Horizontal(id="input-row"):
                 yield Input(placeholder="Введите сообщение и нажмите Enter...")
-                yield Button(MODES["normal"]["label"], id="mode-btn")
+                yield Button(MODES[self.mode]["label"], id="mode-btn")
             yield Label("", id="status")
         yield Footer()
 
@@ -164,6 +159,7 @@ class ChatApp(App):
             kwargs = {
                 **MODEL_PARAMS,
                 "max_tokens": mode["max_tokens"],
+                "temperature": mode["temperature"],
                 "system": system,
                 "messages": messages,
             }
