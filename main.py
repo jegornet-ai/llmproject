@@ -8,33 +8,32 @@ from textual.containers import Vertical, Horizontal
 
 load_dotenv()
 
-MODEL_PARAMS = {
-    "model": "claude-opus-4-5",
-}
-
 MODES = {
-    "t0": {
-        "label": "t = 0",
+    "Слабая": {
+        "label": "█░░  Haiku",
+        "model": "claude-haiku-4-5",
         "max_tokens": 8192,
-        "temperature": 0.0,
+        "temperature": 0,
         "prefix": "",
         "stop_sequences": [],
         "truncate_at": None,
         "system": "Ты полезный ассистент.",
     },
-    "t07": {
-        "label": "t = 0.7",
+    "Средняя": {
+        "label": "██░ Sonnet",
+        "model": "claude-sonnet-4-6",
         "max_tokens": 8192,
-        "temperature": 0.7,
+        "temperature": 0,
         "prefix": "",
         "stop_sequences": [],
         "truncate_at": None,
         "system": "Ты полезный ассистент.",
     },
-    "t12": {
-        "label": "t = 1",
+    "Сильная": {
+        "label": "███   Opus",
+        "model": "claude-opus-4-6",
         "max_tokens": 8192,
-        "temperature": 1,
+        "temperature": 0,
         "prefix": "",
         "stop_sequences": [],
         "truncate_at": None,
@@ -157,7 +156,7 @@ class ChatApp(App):
             messages = list(self.history)
             system = mode["system"]
             kwargs = {
-                **MODEL_PARAMS,
+                "model": mode["model"],
                 "max_tokens": mode["max_tokens"],
                 "temperature": mode["temperature"],
                 "system": system,
