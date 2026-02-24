@@ -1,4 +1,5 @@
 import os
+import json
 import threading
 import requests
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ MAX_TOKENS = 8192
 TEMPERATURE = 0
 SYSTEM = "Ты полезный ассистент."
 API_URL = "https://api.anthropic.com/v1/messages"
+HISTORY_FILE = "chat_history.json"
 
 
 class ChatApp:
@@ -24,6 +26,7 @@ class ChatApp:
         self.history: list[dict] = []
 
         self.setup_ui()
+        self.load_history()
 
     def setup_ui(self):
         # Область чата
@@ -77,6 +80,39 @@ class ChatApp:
         # Начальное сообщение
         self.append_to_chat("Введите сообщение и нажмите Enter для отправки\n\n", 'system')
 
+    def load_history(self):
+        """Загружает историю диалога из JSON файла"""
+        try:
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                    self.history = json.load(f)
+                # Восстанавливаем сообщения в GUI
+                for msg in self.history:
+                    if msg['role'] == 'user':
+                        self.append_to_chat(f"💬 {msg['content']}", 'user')
+                    elif msg['role'] == 'assistant':
+                        self.append_to_chat(f"🤖 {msg['content']}", 'assistant')
+        except Exception as e:
+            self.append_to_chat(f"Ошибка загрузки истории: {e}", 'system')
+
+    def save_history(self):
+        """Сохраняет историю диалога в JSON файл"""
+        try:
+            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Ошибка сохранения истории: {e}")
+
+    def clear_history(self):
+        self.history.clear()
+        self.chat_log.config(state='normal')
+        self.chat_log.delete(1.0, tk.END)
+        self.chat_log.config(state='disabled')
+        # Удаляем файл истории
+        if os.path.exists(HISTORY_FILE):
+            os.remove(HISTORY_FILE)
+        self.append_to_chat("История очищена\n\n", 'system')
+
     def append_to_chat(self, text: str, tag: str = None):
         self.chat_log.config(state='normal')
         if tag:
@@ -103,19 +139,13 @@ class ChatApp:
             return
 
         if message == "/clear":
-            self.history.clear()
-            self.chat_log.config(state='normal')
-            self.chat_log.delete(1.0, tk.END)
-            self.chat_log.config(state='disabled')
-            self.append_to_chat("История очищена\n\n", 'system')
+            self.clear_history()
             return
 
         self.append_to_chat(f"💬 {message}", 'user')
 
         # Блокируем ввод
-        self.input_field.config(state='disabled')
-        self.send_button.config(state='disabled')
-        self.status_label.config(text="Ожидание ответа от ИИ...")
+        self._set_input_waiting()
 
         # Отправляем запрос в отдельном потоке
         thread = threading.Thread(target=self.send_to_ai, args=(message,))
@@ -147,6 +177,7 @@ class ChatApp:
             assistant_message = data["content"][0]["text"] if data.get("content") else ""
 
             self.history.append({"role": "assistant", "content": assistant_message})
+            self.save_history()
 
             # Обновляем GUI в основном потоке
             self.root.after(0, lambda: self.append_to_chat(f"🤖 {assistant_message}", 'assistant'))
@@ -164,6 +195,11 @@ class ChatApp:
         self.send_button.config(state='normal')
         self.status_label.config(text="")
         self.input_field.focus()
+
+    def _set_input_waiting(self):
+        self.input_field.config(state='disabled')
+        self.send_button.config(state='disabled')
+        self.status_label.config(text="Ожидание ответа от ИИ...")
 
 
 if __name__ == "__main__":
