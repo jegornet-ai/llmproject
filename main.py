@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
+import tiktoken
 
 load_dotenv()
 
@@ -15,6 +16,24 @@ SYSTEM = "Ты полезный ассистент."
 API_URL = "https://api.anthropic.com/v1/messages"
 HISTORY_FILE = "chat_history.json"
 
+# Лимиты токенов для различных моделей (стандартный контекст)
+# Источник: https://platform.claude.com/docs/en/build-with-claude/context-windows
+MODEL_TOKEN_LIMITS = {
+    # Claude 4.x модели (стандартный контекст: 200K, бета 1M с специальным заголовком)
+    "claude-opus-4-6": 200000,
+    "claude-sonnet-4-6": 200000,
+    "claude-sonnet-4-5": 200000,
+    "claude-sonnet-4": 200000,
+    "claude-haiku-4-5": 200000,
+
+    # Claude 3.x модели (стандартный контекст: 200K)
+    "claude-3-5-sonnet-20241022": 200000,
+    "claude-3-5-sonnet-20240620": 200000,
+    "claude-3-opus-20240229": 200000,
+    "claude-3-sonnet-20240229": 200000,
+    "claude-3-haiku-20240307": 200000,
+}
+
 
 class ChatApp:
     def __init__(self, root):
@@ -23,10 +42,18 @@ class ChatApp:
         self.root.geometry("1024x768")
 
         self.api_key = os.getenv("ANTHROPIC_API_KEY")
+        # Используем cl100k_base encoding (GPT-4/Claude совместимый)
+        try:
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            print(f"Ошибка инициализации токенизатора: {e}")
+            self.tokenizer = None
+
         self.history: list[dict] = []
 
         self.setup_ui()
         self.load_history()
+        self.show_tokens_in_status_bar()
 
     def setup_ui(self):
         # Область чата
@@ -44,6 +71,7 @@ class ChatApp:
         self.chat_log.tag_config('user', foreground='#a0a0a0')
         self.chat_log.tag_config('assistant', foreground='#ffffff')
         self.chat_log.tag_config('system', foreground='#888888')
+        self.chat_log.tag_config('tokens', foreground='#666666', font=('Arial', 10, 'italic'))
 
         # Фрейм для ввода
         input_frame = tk.Frame(self.root)
@@ -80,6 +108,51 @@ class ChatApp:
         # Начальное сообщение
         self.append_to_chat("Введите сообщение и нажмите Enter для отправки\n\n", 'system')
 
+    def count_tokens(self, text: str) -> int:
+        """Подсчитывает количество токенов в тексте"""
+        if not text:
+            return 0
+
+        try:
+            if self.tokenizer:
+                # Используем tiktoken для точного подсчёта
+                tokens = self.tokenizer.encode(text)
+                return len(tokens)
+            else:
+                # Если tokenizer не инициализирован, используем приблизительную оценку
+                # Для Claude ~3.5-4 символа на токен (примерно)
+                return max(1, len(text) // 4)
+        except Exception as e:
+            print(f"Ошибка подсчёта токенов: {e}")
+            # Fallback на приблизительную оценку
+            return max(1, len(text) // 4)
+
+    def count_message_tokens(self, messages: list[dict]) -> int:
+        """Подсчитывает общее количество токенов в списке сообщений"""
+        total = 0
+        for msg in messages:
+            total += self.count_tokens(msg.get('content', ''))
+        # Добавляем токены системного промпта
+        total += self.count_tokens(SYSTEM)
+        return total
+
+    def get_total_history_tokens(self) -> int:
+        """Возвращает общее количество токенов в истории диалога"""
+        return self.count_message_tokens(self.history)
+
+    def get_model_token_limit(self) -> int:
+        """Возвращает лимит токенов для текущей модели"""
+        return MODEL_TOKEN_LIMITS.get(MODEL, 200000)
+
+    def show_tokens_in_status_bar(self):
+        """Обновляет статус бар с информацией о токенах"""
+        total_tokens = self.get_total_history_tokens()
+        token_limit = self.get_model_token_limit()
+        percentage = (total_tokens / token_limit * 100) if token_limit > 0 else 0
+
+        status_text = f"Токенов в истории: {total_tokens:,} / {token_limit:,} ({percentage:.1f}%) | Модель: {MODEL}"
+        self.status_label.config(text=status_text)
+
     def load_history(self):
         """Загружает историю диалога из JSON файла"""
         try:
@@ -90,8 +163,14 @@ class ChatApp:
                 for msg in self.history:
                     if msg['role'] == 'user':
                         self.append_to_chat(f"💬 {msg['content']}", 'user')
+                        # Показываем токены для запроса пользователя
+                        if 'tokens' in msg:
+                            self.append_to_chat(f"   [{msg['tokens']} токенов]", 'tokens')
                     elif msg['role'] == 'assistant':
                         self.append_to_chat(f"🤖 {msg['content']}", 'assistant')
+                        # Показываем токены для ответа ассистента
+                        if 'tokens' in msg:
+                            self.append_to_chat(f"   [{msg['tokens']} токенов]", 'tokens')
         except Exception as e:
             self.append_to_chat(f"Ошибка загрузки истории: {e}", 'system')
 
@@ -112,6 +191,7 @@ class ChatApp:
         if os.path.exists(HISTORY_FILE):
             os.remove(HISTORY_FILE)
         self.append_to_chat("История очищена\n\n", 'system')
+        self.show_tokens_in_status_bar()
 
     def append_to_chat(self, text: str, tag: str = None):
         self.chat_log.config(state='normal')
@@ -153,7 +233,17 @@ class ChatApp:
         thread.start()
 
     def send_to_ai(self, message: str):
-        self.history.append({"role": "user", "content": message})
+        # Подсчитываем токены для запроса пользователя
+        user_tokens = self.count_tokens(message)
+
+        self.history.append({
+            "role": "user",
+            "content": message,
+            "tokens": user_tokens
+        })
+
+        # Отображаем токены запроса
+        self.root.after(0, lambda: self.append_to_chat(f"   [{user_tokens} токенов]", 'tokens'))
 
         try:
             headers = {
@@ -162,12 +252,18 @@ class ChatApp:
                 "content-type": "application/json"
             }
 
+            # Создаём копию истории без поля tokens для API
+            messages_for_api = [
+                {"role": msg["role"], "content": msg["content"]}
+                for msg in self.history
+            ]
+
             payload = {
                 "model": MODEL,
                 "max_tokens": MAX_TOKENS,
                 "temperature": TEMPERATURE,
                 "system": SYSTEM,
-                "messages": self.history
+                "messages": messages_for_api
             }
 
             response = requests.post(API_URL, headers=headers, json=payload)
@@ -176,11 +272,21 @@ class ChatApp:
             data = response.json()
             assistant_message = data["content"][0]["text"] if data.get("content") else ""
 
-            self.history.append({"role": "assistant", "content": assistant_message})
+            # Получаем информацию об использовании токенов из ответа API
+            usage = data.get("usage", {})
+            assistant_tokens = usage.get("output_tokens", self.count_tokens(assistant_message))
+
+            self.history.append({
+                "role": "assistant",
+                "content": assistant_message,
+                "tokens": assistant_tokens
+            })
             self.save_history()
 
             # Обновляем GUI в основном потоке
             self.root.after(0, lambda: self.append_to_chat(f"🤖 {assistant_message}", 'assistant'))
+            self.root.after(0, lambda: self.append_to_chat(f"   [{assistant_tokens} токенов]", 'tokens'))
+            self.root.after(0, self.show_tokens_in_status_bar)
 
         except Exception as e:
             self.history.pop()
@@ -194,7 +300,7 @@ class ChatApp:
         self.input_field.config(state='normal')
         self.send_button.config(state='normal')
         self.status_label.config(text="")
-        self.input_field.focus()
+        self.show_tokens_in_status_bar()
 
     def _set_input_waiting(self):
         self.input_field.config(state='disabled')
